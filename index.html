@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>🧬 DNA 3D Model</title>
+<style>
+  body { margin:0; overflow:hidden; background:#000; font-family:sans-serif; }
+  canvas { display:block; }
+  #legend {
+    position:absolute; top:10px; right:10px;
+    background: rgba(0,0,0,0.6);
+    padding:10px; border-radius:8px; color:white;
+  }
+  .legend-item { display:flex; align-items:center; margin-bottom:5px; font-size:14px; }
+  .color-box { width:16px; height:16px; margin-right:8px; border:1px solid #fff; }
+
+  #info {
+    position:absolute; top:50px; left:10px;
+    background: rgba(0,0,0,0.6);
+    padding:15px; border-radius:8px; color:white;
+    max-width:250px;
+    display:none;
+  }
+  #info h3 { margin:0 0 8px 0; font-size:20px; }
+  #info ul { padding-left:20px; margin:0; font-size:16px; }
+</style>
+</head>
+<body>
+
+<div id="legend">
+  <div class="legend-item" data-index="0"><div class="color-box" style="background:#ff0000"></div>Adenine (A)</div>
+  <div class="legend-item" data-index="1"><div class="color-box" style="background:#00ff00"></div>Thymine (T)</div>
+  <div class="legend-item" data-index="2"><div class="color-box" style="background:#0000ff"></div>Cytosine (C)</div>
+  <div class="legend-item" data-index="3"><div class="color-box" style="background:#ffd700"></div>Guanine (G)</div>
+</div>
+
+<div id="info"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.min.js"></script>
+<script>
+// Scene setup
+const scene = new THREE.Scene(); // fog removed
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth/window.innerHeight, 0.1, 1000);
+camera.position.set(0, 20, 40);
+
+// Renderer
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// Lights
+scene.add(new THREE.AmbientLight(0xffffff,0.7)); // stronger ambient light
+const pointLight1 = new THREE.PointLight(0xffffff,0.5); pointLight1.position.set(30,30,30); scene.add(pointLight1);
+const pointLight2 = new THREE.PointLight(0xffffff,0.3); pointLight2.position.set(-30,20,-20); scene.add(pointLight2);
+
+// DNA parameters
+const turns=40, pointsPerTurn=50, radius=2.5, spacing=0.9;
+const totalPoints = turns*pointsPerTurn;
+const yOffset = -totalPoints*spacing/2;
+const backboneMat = new THREE.MeshStandardMaterial({color:0xffffff,emissive:0x222222,roughness:0.3,metalness:0.6});
+const baseColors=[0xff0000,0x00ff00,0x0000ff,0xffff00];
+const baseMaterials = baseColors.map(c=>new THREE.MeshStandardMaterial({color:c,emissive:c,roughness:0.2,metalness:0.8}));
+const baseRadius=0.08, backboneRadius=0.08;
+
+const backbone1Points=[], backbone2Points=[], bases=new THREE.Group(), baseMeshes=[], baseColorMap=[];
+const dnaGroup = new THREE.Group();
+
+// Legend & info
+const legendItems = Array.from(document.querySelectorAll('.legend-item'));
+const infoDiv = document.getElementById('info');
+const infoData = [
+    {name:"Adenine (A)", points:["Purine base","Pairs with Thymine","Found in DNA & RNA","Essential for genetic coding"]},
+    {name:"Thymine (T)", points:["Pyrimidine base","Pairs with Adenine","Found only in DNA","Maintains DNA structure"]},
+    {name:"Cytosine (C)", points:["Pyrimidine base","Pairs with Guanine","Found in DNA & RNA","Essential for genetic coding"]},
+    {name:"Guanine (G)", points:["Purine base","Pairs with Cytosine","Found in DNA & RNA","Strong hydrogen bonding"]},
+];
+
+// Helpers
+function makeCylinder(p1,p2,mat,r=baseRadius){
+    const length=p1.distanceTo(p2);
+    const cyl=new THREE.Mesh(new THREE.CylinderGeometry(r,r,length,12,1,true),mat);
+    const mid=new THREE.Vector3().addVectors(p1,p2).multiplyScalar(0.5);
+    cyl.position.copy(mid);
+    cyl.lookAt(p2);
+    cyl.rotateX(Math.PI/2);
+    return cyl;
+}
+
+// Generate DNA
+for(let i=0;i<totalPoints;i++){
+    const theta=i*2*Math.PI/pointsPerTurn;
+    const y=i*spacing+yOffset;
+    const x1=radius*Math.cos(theta), z1=radius*Math.sin(theta);
+    const x2=-x1, z2=-z1;
+    const p1=new THREE.Vector3(x1,y,z1), p2=new THREE.Vector3(x2,y,z2);
+    backbone1Points.push(p1); backbone2Points.push(p2);
+
+    const matIndex=i%baseMaterials.length;
+    const baseMat=baseMaterials[matIndex].clone();
+    const dir=new THREE.Vector3().subVectors(p2,p1).normalize();
+    const perp=new THREE.Vector3(0,1,0).cross(dir).normalize().multiplyScalar(0.08);
+
+    const bond1=makeCylinder(new THREE.Vector3().addVectors(p1,perp),new THREE.Vector3().addVectors(p2,perp),baseMat);
+    const bond2=makeCylinder(new THREE.Vector3().subVectors(p1,perp),new THREE.Vector3().subVectors(p2,perp),baseMat);
+    bases.add(bond1); bases.add(bond2);
+    baseMeshes.push(bond1,bond2);
+    baseColorMap.push(matIndex,matIndex);
+}
+
+// Backbone
+for(let i=0;i<backbone1Points.length-1;i++){
+    dnaGroup.add(makeCylinder(backbone1Points[i],backbone1Points[i+1],backboneMat,backboneRadius));
+    dnaGroup.add(makeCylinder(backbone2Points[i],backbone2Points[i+1],backboneMat,backboneRadius));
+}
+dnaGroup.add(bases);
+scene.add(dnaGroup);
+
+// Raycaster & interaction
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let selectedColor=-1, hoveredStrand=null;
+
+// Drag + rotation
+let isDragging=false, prevMouseX=0, rotationSpeed=0.002;
+window.addEventListener('mousedown', e=>{ isDragging=true; prevMouseX=e.clientX; });
+window.addEventListener('mouseup', e=>{ isDragging=false; });
+window.addEventListener('mousemove', e=>{
+    if(isDragging){ const deltaX=e.clientX-prevMouseX; dnaGroup.rotation.y+=deltaX*0.01; prevMouseX=e.clientX; }
+    mouse.x=(e.clientX/window.innerWidth)*2-1; mouse.y=-(e.clientY/window.innerHeight)*2+1;
+});
+
+// Zoom scaling
+window.addEventListener('wheel', e=>{
+    camera.position.z+=e.deltaY*0.05;
+    camera.position.z=Math.min(80,Math.max(10,camera.position.z));
+    const scale = THREE.MathUtils.mapLinear(camera.position.z,10,80,1.5,0.7);
+    dnaGroup.scale.y=scale;
+});
+
+// Click selection
+window.addEventListener('click', e=>{
+    raycaster.setFromCamera(mouse,camera);
+    const intersects=raycaster.intersectObjects(baseMeshes);
+    if(intersects.length>0){ const idx=baseMeshes.indexOf(intersects[0].object); selectedColor=baseColorMap[idx]; }
+    else selectedColor=-1;
+    updateVisuals();
+});
+
+function updateVisuals(){
+    baseMeshes.forEach((bond,i)=>{
+        if(selectedColor===-1){ bond.material.emissive.setHex(baseColors[baseColorMap[i]]); bond.material.color.setHex(baseColors[baseColorMap[i]]); }
+        else if(baseColorMap[i]===selectedColor){ bond.material.emissive.setHex(baseColors[selectedColor]); bond.material.color.setHex(baseColors[selectedColor]); }
+        else{ bond.material.emissive.setHex(0x111111); bond.material.color.setHex(0x555555); }
+    });
+
+    legendItems.forEach(item=>{
+        if(selectedColor===-1) item.style.display='flex';
+        else item.style.display = (parseInt(item.dataset.index)===selectedColor)?'flex':'none';
+    });
+
+    if(selectedColor===-1){ infoDiv.style.display='none'; infoDiv.innerHTML=''; }
+    else { const info=infoData[selectedColor]; infoDiv.innerHTML = `<h3>${info.name}</h3><ul>${info.points.map(p=>`<li>${p}</li>`).join('')}</ul>`; infoDiv.style.display='block'; }
+}
+
+// Animate
+function animate(){
+    requestAnimationFrame(animate);
+    dnaGroup.rotation.y+=rotationSpeed;
+
+    raycaster.setFromCamera(mouse,camera);
+    const intersects = raycaster.intersectObjects(baseMeshes);
+
+    // Reset previous hover
+    if(hoveredStrand && selectedColor===-1){
+        const idx=baseMeshes.indexOf(hoveredStrand);
+        hoveredStrand.material.emissive.setHex(baseColors[baseColorMap[idx]]);
+        hoveredStrand=null;
+    }
+
+    // Hover glow only on current strand
+    if(intersects.length>0 && selectedColor===-1){
+        hoveredStrand = intersects[0].object;
+        hoveredStrand.material.emissive.setHex(0xffffff);
+    }
+
+    renderer.render(scene,camera);
+}
+
+animate();
+
+// Resize
+window.addEventListener('resize',()=>{
+    camera.aspect=window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
